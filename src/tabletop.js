@@ -1,8 +1,10 @@
 (function() {
   "use strict";
 
+  var inReactNative = typeof process !== 'undefined' && typeof process.env !== 'undefined' && process.env.NODE_ENV;
+
   var inNodeJS = false;
-  if (typeof process !== 'undefined' && !process.browser) {
+  if (typeof process !== 'undefined' && !process.browser && !inReactNative) {
     inNodeJS = true;
     var request = require('request'.trim()); //prevents browserify from bundling the module
   }
@@ -114,7 +116,7 @@
 
     this.base_json_path = "/feeds/worksheets/" + this.key + "/public/basic?alt=";
 
-    if (inNodeJS || supportsCORS) {
+    if (inNodeJS || supportsCORS || inReactNative) {
       this.base_json_path += 'json';
     } else {
       this.base_json_path += 'json-in-script';
@@ -160,10 +162,44 @@
         var protocol = this.endpoint.split("//").shift() || "http";
         if (supportsCORS && (!inLegacyIE || protocol === location.protocol)) {
           this.xhrFetch(path, callback);
+        } else if (inReactNative) {
+          this.rnFetch(path, callback);
         } else {
           this.injectScript(path, callback);
         }
       }
+    },
+
+    /*
+      Use React Native fetch
+    */
+    rnFetch: function(path, callback) {
+      var self = this;
+      fetch(this.endpoint + path)
+      .then(response => {
+        return response.json()
+        .then(json => {
+          if (response.status === 200 || response.status === 201) {
+            callback.call(self, json);
+          } else if (response.status === 408) {
+            throw('Request Timeout');
+          } else {
+            throw('other http error');
+          }
+        })
+      })
+      .catch(error => {
+        if (typeof error.message !== 'undefined') {
+          // errors like Android network request failed
+          console.log("error: ", error.message);
+
+        } else if (typeof error == 'string') {
+          console.log("error: ", error);
+        } else {
+          // errors with typeof object, array or so
+          console.log('unknown error');
+        }
+      });
     },
 
     /*
@@ -314,7 +350,7 @@
           var linkIdx = data.feed.entry[i].link.length-1;
           var sheet_id = data.feed.entry[i].link[linkIdx].href.split('/').pop();
           var json_path = "/feeds/list/" + this.key + "/" + sheet_id + "/public/values?alt="
-          if (inNodeJS || supportsCORS) {
+          if (inNodeJS || supportsCORS || inReactNative) {
             json_path += 'json';
           } else {
             json_path += 'json-in-script';
